@@ -22,19 +22,43 @@ RCT_EXPORT_METHOD(setCompanyId: (nonnull NSNumber *)companyId){
     self->peripheralManager = [[CBPeripheralManager alloc] initWithDelegate:self queue:nil options:nil];
 }
 
-RCT_EXPORT_METHOD(broadcast: (NSString *)uid payload:(NSArray *)payload options:(NSDictionary *)options
+RCT_EXPORT_METHOD(broadcast: (NSString *)uid serviceData:(NSString *)serviceData options:(NSDictionary *)options
     resolve: (RCTPromiseResolveBlock)resolve
     rejecter:(RCTPromiseRejectBlock)reject){
 
-    RCTLogInfo(@"Broadcast function called %@ at %@", uid, payload);
-    // Beacon Version. 
-    //NSUUID *proximityUUID = [[NSUUID alloc] initWithUUIDString:uid];
-    //CLBeaconRegion *beaconRegion = [[CLBeaconRegion alloc] initWithProximityUUID:proximityUUID major:1 minor:1 identifier:REGION_ID];
-    //NSDictionary *advertisingData = [beaconRegion peripheralDataWithMeasuredPower:nil];
+    RCTLogInfo(@"Broadcast function called with UUID: %@ and serviceData: %@", uid, serviceData);
     
-    NSDictionary *advertisingData = @{
-        CBAdvertisementDataServiceUUIDsKey : @[[CBUUID UUIDWithString:uid]]};
-
+    // Create service UUID
+    CBUUID *serviceUUID = [CBUUID UUIDWithString:uid];
+    
+    // Create mutable dictionary for advertising data
+    NSMutableDictionary *advertisingData = [NSMutableDictionary dictionary];
+    
+    // Add service UUID
+    advertisingData[CBAdvertisementDataServiceUUIDsKey] = @[serviceUUID];
+    
+    // Add service data
+    if (serviceData != nil && ![serviceData isEqualToString:@""]) {
+        // Convert string to NSData
+        NSData *serviceDataBytes = [serviceData dataUsingEncoding:NSUTF8StringEncoding];
+        
+        // Create service data dictionary
+        NSMutableDictionary *serviceDataDict = [NSMutableDictionary dictionary];
+        serviceDataDict[serviceUUID] = serviceDataBytes;
+        
+        // Add to advertising data
+        advertisingData[CBAdvertisementDataServiceDataKey] = serviceDataDict;
+        RCTLogInfo(@"Added service data: %@", serviceData);
+    }
+    
+    // Include device name if requested
+    if (options != nil && options[@"includeDeviceName"] && [options[@"includeDeviceName"] boolValue]) {
+        // Device name is included by default in iOS
+    } else {
+        advertisingData[CBAdvertisementDataLocalNameKey] = nil;
+    }
+    
+    RCTLogInfo(@"Starting advertising with data: %@", advertisingData);
     [peripheralManager startAdvertising:advertisingData];
 
     resolve(@"Broadcasting");
