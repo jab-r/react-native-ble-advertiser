@@ -45,31 +45,33 @@ RCT_EXPORT_METHOD(broadcast:(NSString *)uid
     }
 
     CBUUID *serviceUUID = [CBUUID UUIDWithString:uid];
+
+    // Explicitly parse UUID string into NSData
+    NSUUID *uuidObj = [[NSUUID alloc] initWithUUIDString:serviceData];
+    if (!uuidObj) {
+        reject(@"InvalidUUID", @"ServiceData is not a valid UUID string.", nil);
+        return;
+    }
+
+    uuid_t uuidBytes;
+    [uuidObj getUUIDBytes:uuidBytes];
+    NSData *serviceDataBytes = [NSData dataWithBytes:uuidBytes length:16];
+
     NSMutableDictionary *advertisingData = [NSMutableDictionary dictionary];
-
     advertisingData[CBAdvertisementDataServiceUUIDsKey] = @[serviceUUID];
+    advertisingData[CBAdvertisementDataServiceDataKey] = @{serviceUUID: serviceDataBytes};
 
-    if (serviceData && ![serviceData isEqualToString:@""]) {
-        NSData *serviceDataBytes = [serviceData dataUsingEncoding:NSUTF8StringEncoding];
-        advertisingData[CBAdvertisementDataServiceDataKey] = @{serviceUUID: serviceDataBytes};
-    }
-
-    // Include the local name ONLY if explicitly requested
     if (options[@"includeDeviceName"] && [options[@"includeDeviceName"] boolValue]) {
-        NSString *deviceName = [[UIDevice currentDevice] name];
-        if (deviceName) {
-            advertisingData[CBAdvertisementDataLocalNameKey] = deviceName;
-        }
+        advertisingData[CBAdvertisementDataLocalNameKey] = [[UIDevice currentDevice] name];
     }
 
-    // Check if peripheralManager is already advertising
     if (peripheralManager.isAdvertising) {
         [peripheralManager stopAdvertising];
     }
 
     @try {
         [peripheralManager startAdvertising:advertisingData];
-        resolve(@"Broadcasting started");
+        resolve(@"Broadcasting started successfully");
     }
     @catch (NSException *exception) {
         reject(@"StartAdvertisingFailed", exception.reason, nil);
@@ -119,13 +121,33 @@ RCT_EXPORT_METHOD(getAdapterState:(RCTPromiseResolveBlock)resolve rejecter:(RCTP
 }
 
 - (void)centralManager:(CBCentralManager *)central didDiscoverPeripheral:(CBPeripheral *)peripheral advertisementData:(NSDictionary<NSString *, id> *)advertisementData RSSI:(NSNumber *)RSSI {
+    // Extract service data if available
+    NSMutableDictionary *serviceDataDict = [NSMutableDictionary dictionary];
+    NSDictionary *rawServiceData = advertisementData[CBAdvertisementDataServiceDataKey];
+    
+    if (rawServiceData) {
+        for (CBUUID *serviceUUID in rawServiceData) {
+            NSData *data = rawServiceData[serviceUUID];
+            if (data) {
+                // Convert NSData to string
+                NSString *dataString = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+                if (dataString) {
+                    serviceDataDict[[serviceUUID UUIDString]] = dataString;
+                }
+            }
+        }
+    }
+    
+    // Create the event parameters
     NSDictionary *params = @{
         @"deviceName": peripheral.name ?: @"",
         @"deviceAddress": peripheral.identifier.UUIDString ?: @"",
         @"rssi": RSSI ?: @(0),
         @"serviceUuids": [advertisementData[CBAdvertisementDataServiceUUIDsKey] valueForKey:@"UUIDString"] ?: @[],
-        @"txPower": advertisementData[CBAdvertisementDataTxPowerLevelKey] ?: @(0)
+        @"txPower": advertisementData[CBAdvertisementDataTxPowerLevelKey] ?: @(0),
+        @"serviceData": serviceDataDict
     };
+    
     [self sendEventWithName:@"onDeviceFound" body:params];
 }
 
