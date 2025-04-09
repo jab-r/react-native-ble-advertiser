@@ -82,7 +82,7 @@ export interface RegionEvent {
 
 // Core methods
 export function setCompanyId(companyId: number): void;
-export function broadcast(uuid: string, serviceData?: string, options?: BroadcastOptions): Promise<string>;
+export function broadcast(uuid: string, serviceData?: string): Promise<string>;
 export function broadcastAsBeacon(uuid: string, options?: BeaconOptions): Promise<string>;
 export function stopBroadcast(): Promise<string>;
 export function scan(manufDataFilter: number[], options?: ScanOptions): Promise<string>;

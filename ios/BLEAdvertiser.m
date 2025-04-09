@@ -56,9 +56,9 @@ RCT_EXPORT_METHOD(setCompanyId:(nonnull NSNumber *)companyId) {
     RCTLogInfo(@"setCompanyId called: %@", companyId);
     // Managers already initialized in init
 }
-RCT_EXPORT_METHOD(broadcast:(NSString *)uid 
+
+RCT_EXPORT_METHOD(broadcast:(NSString *)uid
                   serviceData:(NSString *)serviceData 
-                  options:(NSDictionary *)options 
                   resolve:(RCTPromiseResolveBlock)resolve 
                   rejecter:(RCTPromiseRejectBlock)reject) 
 {
@@ -68,31 +68,28 @@ RCT_EXPORT_METHOD(broadcast:(NSString *)uid
     }
 
     CBUUID *serviceUUID = [CBUUID UUIDWithString:uid];
+
     NSMutableDictionary *advertisingData = [NSMutableDictionary dictionary];
-
     advertisingData[CBAdvertisementDataServiceUUIDsKey] = @[serviceUUID];
-
-    if (serviceData && ![serviceData isEqualToString:@""]) {
+    
+     if (serviceData && [serviceData length] != 0) {
         NSData *serviceDataBytes = [serviceData dataUsingEncoding:NSUTF8StringEncoding];
+
+        // Check data size: BLE advertising payload should be small (recommended <20 bytes)
+        if ([serviceDataBytes length] > 20) {
+            reject(@"ServiceDataTooLarge", @"ServiceData exceeds BLE recommended size limit (20 bytes).", nil);
+            return;
+        }
         advertisingData[CBAdvertisementDataServiceDataKey] = @{serviceUUID: serviceDataBytes};
     }
-
-    // Include the local name ONLY if explicitly requested
-    if (options[@"includeDeviceName"] && [options[@"includeDeviceName"] boolValue]) {
-        NSString *deviceName = [[UIDevice currentDevice] name];
-        if (deviceName) {
-            advertisingData[CBAdvertisementDataLocalNameKey] = deviceName;
-        }
-    }
-
-    // Check if peripheralManager is already advertising
+    
     if (peripheralManager.isAdvertising) {
         [peripheralManager stopAdvertising];
     }
 
     @try {
         [peripheralManager startAdvertising:advertisingData];
-        resolve(@"Broadcasting started");
+        resolve(@"Broadcasting started successfully");
     }
     @catch (NSException *exception) {
         reject(@"StartAdvertisingFailed", exception.reason, nil);
