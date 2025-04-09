@@ -114,24 +114,18 @@ public class BLEAdvertiserModule extends ReactContextBaseJavaModule {
     }
 
     @ReactMethod
-    public void broadcast(String uid, ReadableArray payload, ReadableMap options, Promise promise) {
+    public void broadcast(String uid, String serviceData, ReadableMap options, Promise promise) {
         if (mBluetoothAdapter == null) {
             Log.w("BLEAdvertiserModule", "Device does not support Bluetooth. Adapter is Null");
             promise.reject("Device does not support Bluetooth. Adapter is Null");
             return;
-        } 
-        
-        if (companyId == 0x0000) {
-            Log.w("BLEAdvertiserModule", "Invalid company id");
-            promise.reject("Invalid company id");
-            return;
-        } 
+        }
         
         if (mBluetoothAdapter == null) {
             Log.w("BLEAdvertiserModule", "mBluetoothAdapter unavailable");
             promise.reject("mBluetoothAdapter unavailable");
             return;
-        } 
+        }
 
         if (mObservedState != null && !mObservedState) {
             Log.w("BLEAdvertiserModule", "Bluetooth disabled");
@@ -158,8 +152,10 @@ public class BLEAdvertiserModule extends ReactContextBaseJavaModule {
             return;
         }
         
+        Log.d(TAG, "Broadcasting with UUID: " + uid + " and service data: " + serviceData);
+        
         AdvertiseSettings settings = buildAdvertiseSettings(options);
-        AdvertiseData data = buildAdvertiseData(ParcelUuid.fromString(uid), toByteArray(payload), options);
+        AdvertiseData data = buildAdvertiseData(ParcelUuid.fromString(uid), serviceData, options);
 
         tempAdvertiser.startAdvertising(settings, data, tempCallback);
 
@@ -457,17 +453,25 @@ public class BLEAdvertiserModule extends ReactContextBaseJavaModule {
         return settingsBuilder.build();
     }
 
-    private AdvertiseData buildAdvertiseData(ParcelUuid uuid, byte[] payload, ReadableMap options) {
+    private AdvertiseData buildAdvertiseData(ParcelUuid uuid, String serviceData, ReadableMap options) {
         AdvertiseData.Builder dataBuilder = new AdvertiseData.Builder();
 
-        if (options != null && options.hasKey("includeDeviceName")) 
+        if (options != null && options.hasKey("includeDeviceName"))
             dataBuilder.setIncludeDeviceName(options.getBoolean("includeDeviceName"));
         
-         if (options != null && options.hasKey("includeTxPowerLevel")) 
+        if (options != null && options.hasKey("includeTxPowerLevel"))
             dataBuilder.setIncludeTxPowerLevel(options.getBoolean("includeTxPowerLevel"));
         
-        dataBuilder.addManufacturerData(companyId, payload);
+        // Add service UUID
         dataBuilder.addServiceUuid(uuid);
+        
+        // Add service data
+        if (serviceData != null && !serviceData.isEmpty()) {
+            byte[] serviceDataBytes = serviceData.getBytes();
+            dataBuilder.addServiceData(uuid, serviceDataBytes);
+            Log.d(TAG, "Added service data: " + serviceData);
+        }
+        
         return dataBuilder.build();
     }
 
