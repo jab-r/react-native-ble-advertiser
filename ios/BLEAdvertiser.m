@@ -56,66 +56,43 @@ RCT_EXPORT_METHOD(setCompanyId:(nonnull NSNumber *)companyId) {
     RCTLogInfo(@"setCompanyId called: %@", companyId);
     // Managers already initialized in init
 }
-RCT_EXPORT_METHOD(broadcast:(NSString *)deviceId
-                  prefix:(NSString *)prefix
-                  resolve:(RCTPromiseResolveBlock)resolve
-                  rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXPORT_METHOD(broadcast:(NSString *)uid 
+                  serviceData:(NSString *)serviceData 
+                  options:(NSDictionary *)options 
+                  resolve:(RCTPromiseResolveBlock)resolve 
+                  rejecter:(RCTPromiseRejectBlock)reject) 
 {
     if (!peripheralReady) {
         reject(@"PeripheralNotReady", @"Bluetooth Peripheral Manager is not ready yet.", nil);
         return;
     }
 
-    // Validate and parse UUID
-    NSUUID *uuid = [[NSUUID alloc] initWithUUIDString:deviceId];
-    if (!uuid) {
-        reject(@"InvalidUUID", @"DeviceId is not a valid UUID string.", nil);
-        return;
+    CBUUID *serviceUUID = [CBUUID UUIDWithString:uid];
+    NSMutableDictionary *advertisingData = [NSMutableDictionary dictionary];
+
+    advertisingData[CBAdvertisementDataServiceUUIDsKey] = @[serviceUUID];
+
+    if (serviceData && ![serviceData isEqualToString:@""]) {
+        NSData *serviceDataBytes = [serviceData dataUsingEncoding:NSUTF8StringEncoding];
+        advertisingData[CBAdvertisementDataServiceDataKey] = @{serviceUUID: serviceDataBytes};
     }
 
-    uuid_t uuidBytes;
-    [uuid getUUIDBytes:uuidBytes];
-
-    // Manufacturer data preparation
-    NSMutableData *manufacturerData = [NSMutableData data];
-
-    // Apple’s company ID (0x004C) in little-endian byte order
-    uint8_t companyIdBytes[2] = {0x4C, 0x00};
-    [manufacturerData appendBytes:companyIdBytes length:2];
-
-    // Append UUID (16 bytes)
-    [manufacturerData appendBytes:uuidBytes length:16];
-
-    // Add prefix (up to 13 bytes available)
-    if (prefix && prefix.length > 0) {
-        NSData *prefixData = [prefix dataUsingEncoding:NSUTF8StringEncoding];
-
-        // Calculate remaining bytes available (31 - 2 -16 = 13 bytes)
-        NSUInteger remainingBytes = 13;
-        if (prefixData.length > remainingBytes) {
-            prefixData = [prefixData subdataWithRange:NSMakeRange(0, remainingBytes)];
+    // Include the local name ONLY if explicitly requested
+    if (options[@"includeDeviceName"] && [options[@"includeDeviceName"] boolValue]) {
+        NSString *deviceName = [[UIDevice currentDevice] name];
+        if (deviceName) {
+            advertisingData[CBAdvertisementDataLocalNameKey] = deviceName;
         }
-
-        [manufacturerData appendData:prefixData];
     }
 
-    // Debug log
-    NSLog(@"Manufacturer data size: %lu bytes", (unsigned long)manufacturerData.length);
-
-    // Advertising dictionary
-    NSDictionary *advertisingData = @{
-        CBAdvertisementDataManufacturerDataKey: manufacturerData
-    };
-
-    // Stop previous advertising if needed
+    // Check if peripheralManager is already advertising
     if (peripheralManager.isAdvertising) {
         [peripheralManager stopAdvertising];
     }
 
-    // Start advertising
     @try {
         [peripheralManager startAdvertising:advertisingData];
-        resolve(@"Broadcasting started successfully");
+        resolve(@"Broadcasting started");
     }
     @catch (NSException *exception) {
         reject(@"StartAdvertisingFailed", exception.reason, nil);
