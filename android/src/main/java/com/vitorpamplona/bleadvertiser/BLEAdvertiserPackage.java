@@ -1,4 +1,4 @@
-package com.vitorpamplona.bleavertiser;
+package com.jabresearch.bleadvertiser;
 
 import java.util.Arrays;
 import java.util.Collections;

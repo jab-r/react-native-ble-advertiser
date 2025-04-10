@@ -1,4 +1,4 @@
-package com.vitorpamplona.bleavertiser;
+package com.jabresearch.bleadvertiser;
 
 import com.facebook.react.uimanager.*;
 import com.facebook.react.bridge.*;
@@ -10,7 +10,6 @@ import com.facebook.react.modules.core.DefaultHardwareBackBtnHandler;
 import com.facebook.react.modules.core.DeviceEventManagerModule;
 import com.facebook.react.shell.MainReactPackage;
 import com.facebook.soloader.SoLoader;
-
 import android.content.Context;
 import android.os.Bundle;
 import android.util.Log;
@@ -30,9 +29,11 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.os.ParcelUuid;
 import android.os.Build;
+import android.location.Location;
 
 import com.facebook.react.modules.core.DeviceEventManagerModule;
 import com.facebook.react.bridge.WritableMap;
+import com.facebook.react.bridge.WritableArray;
 import com.facebook.react.bridge.Arguments;
 
 import java.util.ArrayList;
@@ -43,10 +44,13 @@ import java.lang.Thread;
 import java.lang.Object;
 import java.util.Hashtable;
 import java.util.Set;
+import java.util.UUID;
+import java.nio.ByteBuffer;
+import java.util.Set;
 
 public class BLEAdvertiserModule extends ReactContextBaseJavaModule {
 
-    public static final String TAG = "BleAdvertiserXX0";
+    public static final String TAG = "BleAdvertiser";
     private BluetoothAdapter mBluetoothAdapter;
     
     private static Hashtable<String, BluetoothLeAdvertiser> mAdvertiserList;
@@ -55,6 +59,40 @@ public class BLEAdvertiserModule extends ReactContextBaseJavaModule {
     private static ScanCallback mScannerCallback;
     private int companyId;
     private Boolean mObservedState;
+    
+    // iBeacon related fields
+    private static final int APPLE_MANUFACTURER_ID = 0x004C;
+    private static final byte IBEACON_TYPE = 0x02;
+    private static final byte IBEACON_TYPE_LENGTH = 0x15;
+    
+    // Maps to track monitored and ranged regions
+    private Map<String, BeaconRegion> monitoredRegions;
+    private Map<String, BeaconRegion> rangedRegions;
+    
+    // Class to represent a beacon region
+    private class BeaconRegion {
+        String identifier;
+        UUID uuid;
+        Integer major;
+        Integer minor;
+        
+        BeaconRegion(String identifier, UUID uuid, Integer major, Integer minor) {
+            this.identifier = identifier;
+            this.uuid = uuid;
+            this.major = major;
+            this.minor = minor;
+        }
+        
+        @Override
+        public String toString() {
+            return "BeaconRegion{" +
+                   "identifier='" + identifier + '\'' +
+                   ", uuid=" + uuid +
+                   ", major=" + major +
+                   ", minor=" + minor +
+                   '}';
+        }
+    }
 
     //Constructor
     public BLEAdvertiserModule(ReactApplicationContext reactContext) {
@@ -62,12 +100,16 @@ public class BLEAdvertiserModule extends ReactContextBaseJavaModule {
 
         mAdvertiserList = new Hashtable<String, BluetoothLeAdvertiser>();
         mAdvertiserCallbackList = new Hashtable<String, AdvertiseCallback>();
+        
+        // Initialize beacon region maps
+        monitoredRegions = new HashMap<>();
+        rangedRegions = new HashMap<>();
 
         BluetoothManager bluetoothManager = (BluetoothManager) reactContext.getApplicationContext()
                 .getSystemService(Context.BLUETOOTH_SERVICE);
         if (bluetoothManager != null) {
             mBluetoothAdapter = bluetoothManager.getAdapter();
-        } 
+        }
 
         if (mBluetoothAdapter != null) {
             mObservedState = mBluetoothAdapter.isEnabled();
@@ -266,14 +308,170 @@ public class BLEAdvertiserModule extends ReactContextBaseJavaModule {
 
     @ReactMethod
     public void addListener(String eventName) {
-
+        // Required for RN event emitter
     }
 
     @ReactMethod
     public void removeListeners(Integer count) {
-
+        // Required for RN event emitter
     }
-
+    
+    /**
+     * Broadcast as an iBeacon
+     */
+    @ReactMethod
+    public void broadcastAsBeacon(String uuid, ReadableMap options, Promise promise) {
+        if (mBluetoothAdapter == null) {
+            Log.w(TAG, "Device does not support Bluetooth. Adapter is Null");
+            promise.reject("Device does not support Bluetooth. Adapter is Null");
+            return;
+        }
+        
+        if (mObservedState != null && !mObservedState) {
+            Log.w(TAG, "Bluetooth disabled");
+            promise.reject("Bluetooth disabled");
+            return;
+        }
+        
+        BluetoothLeAdvertiser tempAdvertiser;
+        AdvertiseCallback tempCallback;
+        
+        // Use UUID as the key for the advertiser
+        if (mAdvertiserList.containsKey(uuid)) {
+            tempAdvertiser = mAdvertiserList.remove(uuid);
+            tempCallback = mAdvertiserCallbackList.remove(uuid);
+            
+            tempAdvertiser.stopAdvertising(tempCallback);
+        } else {
+            tempAdvertiser = mBluetoothAdapter.getBluetoothLeAdvertiser();
+            tempCallback = new SimpleAdvertiseCallback(promise);
+        }
+        
+        if (tempAdvertiser == null) {
+            Log.w(TAG, "Advertiser Not Available");
+            promise.reject("Advertiser unavailable on this device");
+            return;
+        }
+        
+        try {
+            // Parse UUID
+            UUID parsedUuid = UUID.fromString(uuid);
+            
+            // Get major and minor from options
+            int major = 1;
+            int minor = 1;
+            int measuredPower = -59; // Default measured power at 1 meter
+            
+            if (options != null) {
+                if (options.hasKey("major")) {
+                    major = options.getInt("major");
+                }
+                
+                if (options.hasKey("minor")) {
+                    minor = options.getInt("minor");
+                }
+                
+                if (options.hasKey("measuredPower")) {
+                    measuredPower = options.getInt("measuredPower");
+                }
+            }
+            
+            Log.d(TAG, "Broadcasting as iBeacon with UUID: " + uuid + ", major: " + major + ", minor: " + minor);
+            
+            // Build iBeacon advertisement data
+            AdvertiseSettings settings = buildAdvertiseSettings(options);
+            AdvertiseData data = buildIBeaconAdvertiseData(parsedUuid, major, minor, measuredPower);
+            
+            tempAdvertiser.startAdvertising(settings, data, tempCallback);
+            
+            mAdvertiserList.put(uuid, tempAdvertiser);
+            mAdvertiserCallbackList.put(uuid, tempCallback);
+            
+        } catch (IllegalArgumentException e) {
+            Log.e(TAG, "Invalid UUID format", e);
+            promise.reject("InvalidUUID", "UUID is not valid: " + e.getMessage());
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to start advertising as iBeacon", e);
+            promise.reject("StartAdvertisingFailed", e.getMessage());
+        }
+    }
+    
+    /**
+     * Build iBeacon advertisement data
+     */
+    private AdvertiseData buildIBeaconAdvertiseData(UUID uuid, int major, int minor, int measuredPower) {
+        AdvertiseData.Builder dataBuilder = new AdvertiseData.Builder();
+        
+        // iBeacon layout:
+        // 0x02 (iBeacon type) + 0x15 (length) + UUID (16 bytes) + major (2 bytes) + minor (2 bytes) + txPower (1 byte)
+        byte[] manufacturerData = new byte[23];
+        
+        // Set iBeacon type and length
+        manufacturerData[0] = IBEACON_TYPE;
+        manufacturerData[1] = IBEACON_TYPE_LENGTH;
+        
+        // Convert UUID to bytes and copy to manufacturer data
+        ByteBuffer bb = ByteBuffer.wrap(manufacturerData, 2, 16);
+        bb.putLong(uuid.getMostSignificantBits());
+        bb.putLong(uuid.getLeastSignificantBits());
+        
+        // Set major value (2 bytes, big endian)
+        manufacturerData[18] = (byte) ((major >> 8) & 0xFF);
+        manufacturerData[19] = (byte) (major & 0xFF);
+        
+        // Set minor value (2 bytes, big endian)
+        manufacturerData[20] = (byte) ((minor >> 8) & 0xFF);
+        manufacturerData[21] = (byte) (minor & 0xFF);
+        
+        // Set measured power
+        manufacturerData[22] = (byte) measuredPower;
+        
+        // Add manufacturer specific data with Apple's company ID
+        dataBuilder.addManufacturerData(APPLE_MANUFACTURER_ID, manufacturerData);
+        
+        return dataBuilder.build();
+    }
+    
+    /**
+     * Scan specifically for iBeacons
+     */
+    @ReactMethod
+    public void scanForIBeacons(String uuid, ReadableMap options, Promise promise) {
+        if (mBluetoothAdapter == null) {
+            promise.reject("Device does not support Bluetooth. Adapter is Null");
+            return;
+        }
+        
+        if (mObservedState != null && !mObservedState) {
+            Log.w(TAG, "Bluetooth disabled");
+            promise.reject("Bluetooth disabled");
+            return;
+        }
+        
+        if (mScannerCallback == null) {
+            mScannerCallback = new SimpleScanCallback();
+        }
+        
+        if (mScanner == null) {
+            mScanner = mBluetoothAdapter.getBluetoothLeScanner();
+        } else {
+            mScanner.stopScan(mScannerCallback);
+        }
+        
+        if (mScanner == null) {
+            Log.w(TAG, "Scanner Not Available");
+            promise.reject("Scanner unavailable on this device");
+            return;
+        }
+        
+        ScanSettings scanSettings = buildScanSettings(options);
+        
+        // For iBeacon scanning, we'll scan for all devices and filter in the callback
+        // This is because iBeacons use manufacturer data which can't be filtered directly
+        mScanner.startScan(null, scanSettings, mScannerCallback);
+        promise.resolve("Scanning for iBeacons");
+    }
+    
     @ReactMethod
 	public void stopScan(Promise promise) {
         if (mBluetoothAdapter == null) {
@@ -320,14 +518,14 @@ public class BLEAdvertiserModule extends ReactContextBaseJavaModule {
     }
 
     private class SimpleScanCallback extends ScanCallback {
-		@Override
-		public void onScanResult(int callbackType, ScanResult result) {
-            Log.w("BLEAdvertiserModule", "Scanned: " + result.toString());
+  @Override
+  public void onScanResult(int callbackType, ScanResult result) {
+            Log.d(TAG, "Scanned: " + result.toString());
 
             WritableMap params = Arguments.createMap();
             WritableArray paramsUUID = Arguments.createArray();
 
-            if (result.getScanRecord().getServiceUuids()!=null) {
+            if (result.getScanRecord() != null && result.getScanRecord().getServiceUuids() != null) {
                 for (ParcelUuid uuid : result.getScanRecord().getServiceUuids()) {
                     paramsUUID.pushString(uuid.toString());
                 }
@@ -338,11 +536,61 @@ public class BLEAdvertiserModule extends ReactContextBaseJavaModule {
             
             if (result.getScanRecord() != null) {
                 params.putInt("txPower", result.getScanRecord().getTxPowerLevel());
-                params.putString("deviceName", result.getScanRecord().getDeviceName());
+                params.putString("deviceName", result.getScanRecord().getDeviceName() != null ? result.getScanRecord().getDeviceName() : "");
                 params.putInt("advFlags", result.getScanRecord().getAdvertiseFlags());
+                
+                // Check for manufacturer data from our company ID
                 if (result.getScanRecord().getManufacturerSpecificData(companyId) != null) {
                     params.putInt("companyId", companyId);
                     params.putArray("manufData", toByteArray(result.getScanRecord().getManufacturerSpecificData(companyId)));
+                }
+                
+                // Check for iBeacon data (Apple's company ID)
+                byte[] appleData = result.getScanRecord().getManufacturerSpecificData(APPLE_MANUFACTURER_ID);
+                if (appleData != null && appleData.length >= 23) {
+                    // Check for iBeacon type and length
+                    if (appleData[0] == IBEACON_TYPE && appleData[1] == IBEACON_TYPE_LENGTH) {
+                        // Extract UUID (16 bytes)
+                        ByteBuffer bb = ByteBuffer.wrap(appleData, 2, 16);
+                        long high = bb.getLong();
+                        long low = bb.getLong();
+                        UUID proximityUuid = new UUID(high, low);
+                        
+                        // Extract major (2 bytes)
+                        int major = ((appleData[18] & 0xFF) << 8) | (appleData[19] & 0xFF);
+                        
+                        // Extract minor (2 bytes)
+                        int minor = ((appleData[20] & 0xFF) << 8) | (appleData[21] & 0xFF);
+                        
+                        // Extract measured power (1 byte)
+                        int measuredPower = (int) appleData[22];
+                        
+                        // Add beacon data to params
+                        WritableMap beaconData = Arguments.createMap();
+                        beaconData.putString("uuid", proximityUuid.toString());
+                        beaconData.putInt("major", major);
+                        beaconData.putInt("minor", minor);
+                        beaconData.putInt("measuredPower", measuredPower);
+                        beaconData.putBoolean("isBeacon", true);
+                        
+                        params.putMap("beaconData", beaconData);
+                        
+                        // Calculate approximate distance based on RSSI and measured power
+                        double rssi = result.getRssi();
+                        double ratio = rssi / measuredPower;
+                        double distance;
+                        
+                        if (ratio < 1.0) {
+                            distance = Math.pow(ratio, 10);
+                        } else {
+                            distance = (0.89976) * Math.pow(ratio, 7.7095) + 0.111;
+                        }
+                        
+                        params.putDouble("distance", distance);
+                        
+                        // Process beacon for monitoring and ranging
+                        processBeacon(proximityUuid, major, minor, result.getRssi(), measuredPower, distance);
+                    }
                 }
             }
             
@@ -351,31 +599,303 @@ public class BLEAdvertiserModule extends ReactContextBaseJavaModule {
             }
 
             sendEvent("onDeviceFound", params);
-		}
+  }
 
-		@Override
-		public void onBatchScanResults(final List<ScanResult> results) {
-
-		}
-
-		@Override
-		public void onScanFailed(final int errorCode) {
-            /*
-           switch (errorCode) {
-                case SCAN_FAILED_ALREADY_STARTED:
-                    promise.reject("Fails to start scan as BLE scan with the same settings is already started by the app."); break;
-                case SCAN_FAILED_APPLICATION_REGISTRATION_FAILED:
-                    promise.reject("Fails to start scan as app cannot be registered."); break;
-                case SCAN_FAILED_FEATURE_UNSUPPORTED:
-                    promise.reject("Fails to start power optimized scan as this feature is not supported."); break;
-                case SCAN_FAILED_INTERNAL_ERROR:
-                    promise.reject("Fails to start scan due an internal error"); break;
-                default: 
-                    promise.reject("Scan failed: " + errorCode);
+  @Override
+  public void onBatchScanResults(final List<ScanResult> results) {
+            for (ScanResult result : results) {
+                onScanResult(0, result);
             }
-            promise.reject("Scan failed: Should not be here. ");*/
-		}
-	};
+  }
+
+  @Override
+  public void onScanFailed(final int errorCode) {
+            Log.e(TAG, "Scan failed with error code: " + errorCode);
+  }
+ };
+ 
+ /**
+     * Process a detected beacon for monitoring and ranging
+     */
+    private void processBeacon(UUID uuid, int major, int minor, int rssi, int measuredPower, double distance) {
+        // Check if this beacon matches any monitored regions
+        for (BeaconRegion region : monitoredRegions.values()) {
+            if (matchesRegion(region, uuid, major, minor)) {
+                // This beacon is in a monitored region
+                // In a real implementation, we would track enter/exit events
+                // For simplicity, we'll just emit the region event
+                
+                WritableMap params = Arguments.createMap();
+                params.putString("identifier", region.identifier);
+                params.putString("uuid", uuid.toString());
+                params.putInt("major", major);
+                params.putInt("minor", minor);
+                
+                sendEvent("onRegionEnter", params);
+            }
+        }
+        
+        // Check if this beacon matches any ranged regions
+        for (BeaconRegion region : rangedRegions.values()) {
+            if (matchesRegion(region, uuid, major, minor)) {
+                // This beacon is in a ranged region
+                // Collect beacons for each region and emit events
+                
+                WritableMap beaconInfo = Arguments.createMap();
+                beaconInfo.putString("uuid", uuid.toString());
+                beaconInfo.putInt("major", major);
+                beaconInfo.putInt("minor", minor);
+                beaconInfo.putInt("rssi", rssi);
+                beaconInfo.putDouble("accuracy", distance);
+                
+                // Determine proximity string based on distance
+                String proximityString;
+                if (distance < 0.5) {
+                    proximityString = "immediate";
+                } else if (distance < 3.0) {
+                    proximityString = "near";
+                } else {
+                    proximityString = "far";
+                }
+                beaconInfo.putString("proximity", proximityString);
+                
+                WritableArray beacons = Arguments.createArray();
+                beacons.pushMap(beaconInfo);
+                
+                WritableMap params = Arguments.createMap();
+                params.putString("identifier", region.identifier);
+                params.putArray("beacons", beacons);
+                
+                sendEvent("onBeaconDiscovered", params);
+            }
+        }
+    }
+    
+    /**
+     * Check if a beacon matches a region
+     */
+    private boolean matchesRegion(BeaconRegion region, UUID uuid, int major, int minor) {
+        // Check UUID
+        if (!region.uuid.equals(uuid)) {
+            return false;
+        }
+        
+        // Check major if specified
+        if (region.major != null && region.major != major) {
+            return false;
+        }
+        
+        // Check minor if specified
+        if (region.minor != null && region.minor != minor) {
+            return false;
+        }
+        
+        return true;
+    }
+    
+    /**
+     * Start monitoring for an iBeacon region
+     */
+    @ReactMethod
+    public void startMonitoringForRegion(String uuid, ReadableMap options, Promise promise) {
+        try {
+            // Parse UUID
+            UUID parsedUuid = UUID.fromString(uuid);
+            
+            // Get identifier, major, and minor from options
+            String identifier = uuid;
+            Integer major = null;
+            Integer minor = null;
+            
+            if (options != null) {
+                if (options.hasKey("identifier")) {
+                    identifier = options.getString("identifier");
+                }
+                
+                if (options.hasKey("major")) {
+                    major = options.getInt("major");
+                }
+                
+                if (options.hasKey("minor")) {
+                    minor = options.getInt("minor");
+                }
+            }
+            
+            // Create beacon region
+            BeaconRegion region = new BeaconRegion(identifier, parsedUuid, major, minor);
+            
+            // Store the region
+            monitoredRegions.put(identifier, region);
+            
+            Log.d(TAG, "Started monitoring region: " + region.toString());
+            
+            // On Android, we'll detect region enter/exit events during scanning
+            // by filtering scan results in the callback
+            
+            WritableMap response = Arguments.createMap();
+            response.putString("message", "Started monitoring region");
+            response.putString("identifier", identifier);
+            
+            promise.resolve(response);
+            
+        } catch (IllegalArgumentException e) {
+            Log.e(TAG, "Invalid UUID format", e);
+            promise.reject("InvalidUUID", "UUID is not valid: " + e.getMessage());
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to start monitoring region", e);
+            promise.reject("StartMonitoringFailed", e.getMessage());
+        }
+    }
+    
+    /**
+     * Stop monitoring for an iBeacon region
+     */
+    @ReactMethod
+    public void stopMonitoringForRegion(String identifier, Promise promise) {
+        BeaconRegion region = monitoredRegions.remove(identifier);
+        
+        if (region != null) {
+            Log.d(TAG, "Stopped monitoring region: " + region.toString());
+            
+            WritableMap response = Arguments.createMap();
+            response.putString("message", "Stopped monitoring region");
+            response.putString("identifier", identifier);
+            
+            promise.resolve(response);
+        } else {
+            promise.reject("RegionNotFound", "No monitored region with that identifier");
+        }
+    }
+    
+    /**
+     * Get all monitored regions
+     */
+    @ReactMethod
+    public void getMonitoredRegions(Promise promise) {
+        WritableArray regions = Arguments.createArray();
+        
+        for (Map.Entry<String, BeaconRegion> entry : monitoredRegions.entrySet()) {
+            BeaconRegion region = entry.getValue();
+            
+            WritableMap regionMap = Arguments.createMap();
+            regionMap.putString("identifier", region.identifier);
+            regionMap.putString("uuid", region.uuid.toString());
+            
+            if (region.major != null) {
+                regionMap.putInt("major", region.major);
+            }
+            
+            if (region.minor != null) {
+                regionMap.putInt("minor", region.minor);
+            }
+            
+            regions.pushMap(regionMap);
+        }
+        
+        promise.resolve(regions);
+    }
+    
+    /**
+     * Start ranging beacons in a region
+     */
+    @ReactMethod
+    public void startRangingBeaconsInRegion(String uuid, ReadableMap options, Promise promise) {
+        try {
+            // Parse UUID
+            UUID parsedUuid = UUID.fromString(uuid);
+            
+            // Get identifier, major, and minor from options
+            String identifier = uuid;
+            Integer major = null;
+            Integer minor = null;
+            
+            if (options != null) {
+                if (options.hasKey("identifier")) {
+                    identifier = options.getString("identifier");
+                }
+                
+                if (options.hasKey("major")) {
+                    major = options.getInt("major");
+                }
+                
+                if (options.hasKey("minor")) {
+                    minor = options.getInt("minor");
+                }
+            }
+            
+            // Create beacon region
+            BeaconRegion region = new BeaconRegion(identifier, parsedUuid, major, minor);
+            
+            // Store the region
+            rangedRegions.put(identifier, region);
+            
+            Log.d(TAG, "Started ranging beacons in region: " + region.toString());
+            
+            // On Android, we'll detect beacons during scanning
+            // by filtering scan results in the callback
+            
+            WritableMap response = Arguments.createMap();
+            response.putString("message", "Started ranging beacons");
+            response.putString("identifier", identifier);
+            
+            promise.resolve(response);
+            
+        } catch (IllegalArgumentException e) {
+            Log.e(TAG, "Invalid UUID format", e);
+            promise.reject("InvalidUUID", "UUID is not valid: " + e.getMessage());
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to start ranging beacons", e);
+            promise.reject("StartRangingFailed", e.getMessage());
+        }
+    }
+    
+    /**
+     * Stop ranging beacons in a region
+     */
+    @ReactMethod
+    public void stopRangingBeaconsInRegion(String identifier, Promise promise) {
+        BeaconRegion region = rangedRegions.remove(identifier);
+        
+        if (region != null) {
+            Log.d(TAG, "Stopped ranging beacons in region: " + region.toString());
+            
+            WritableMap response = Arguments.createMap();
+            response.putString("message", "Stopped ranging beacons");
+            response.putString("identifier", identifier);
+            
+            promise.resolve(response);
+        } else {
+            promise.reject("RegionNotFound", "No ranged region with that identifier");
+        }
+    }
+    
+    /**
+     * Get all ranged regions
+     */
+    @ReactMethod
+    public void getRangedRegions(Promise promise) {
+        WritableArray regions = Arguments.createArray();
+        
+        for (Map.Entry<String, BeaconRegion> entry : rangedRegions.entrySet()) {
+            BeaconRegion region = entry.getValue();
+            
+            WritableMap regionMap = Arguments.createMap();
+            regionMap.putString("identifier", region.identifier);
+            regionMap.putString("uuid", region.uuid.toString());
+            
+            if (region.major != null) {
+                regionMap.putInt("major", region.major);
+            }
+            
+            if (region.minor != null) {
+                regionMap.putInt("minor", region.minor);
+            }
+            
+            regions.pushMap(regionMap);
+        }
+        
+        promise.resolve(regions);
+    }
 
     @ReactMethod
     public void enableAdapter() {
