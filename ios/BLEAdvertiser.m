@@ -5,6 +5,27 @@
 @implementation BLEAdvertiser {
     BOOL centralReady;
     BOOL peripheralReady;
+<<<<<<< HEAD
+}
+
+RCT_EXPORT_MODULE()
+
+- (instancetype)init {
+    if (self = [super init]) {
+        dispatch_queue_t queue = dispatch_get_main_queue();
+        self->centralManager = [[CBCentralManager alloc] initWithDelegate:self queue:queue options:@{CBCentralManagerOptionShowPowerAlertKey: @(YES)}];
+        self->peripheralManager = [[CBPeripheralManager alloc] initWithDelegate:self queue:queue options:nil];
+        centralReady = NO;
+        peripheralReady = NO;
+    }
+    return self;
+}
+
+- (dispatch_queue_t)methodQueue {
+    return dispatch_get_main_queue();
+}
+
+=======
     BOOL locationReady;
     NSMutableDictionary *monitoredRegions;
     NSMutableDictionary *rangedRegions;
@@ -40,6 +61,7 @@ RCT_EXPORT_MODULE()
     return dispatch_get_main_queue();
 }
 
+>>>>>>> 074ea1f03f0609e2d5cb080a8f26462064c850c5
 - (NSArray<NSString *> *)supportedEvents {
     return @[
         @"onDeviceFound",
@@ -57,6 +79,11 @@ RCT_EXPORT_METHOD(setCompanyId:(nonnull NSNumber *)companyId) {
     // Managers already initialized in init
 }
 
+<<<<<<< HEAD
+RCT_EXPORT_METHOD(broadcast:(NSString *)uid serviceData:(NSString *)serviceData options:(NSDictionary *)options resolve:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+    if (!peripheralReady) {
+        reject(@"Peripheral Not Ready", @"Bluetooth Peripheral Manager is not ready yet.", nil);
+=======
 RCT_EXPORT_METHOD(broadcast:(NSString *)uid
                   serviceData:(NSString *)serviceData 
                   resolve:(RCTPromiseResolveBlock)resolve 
@@ -64,10 +91,47 @@ RCT_EXPORT_METHOD(broadcast:(NSString *)uid
 {
     if (!peripheralReady) {
         reject(@"PeripheralNotReady", @"Bluetooth Peripheral Manager is not ready yet.", nil);
+>>>>>>> 074ea1f03f0609e2d5cb080a8f26462064c850c5
         return;
     }
 
     CBUUID *serviceUUID = [CBUUID UUIDWithString:uid];
+<<<<<<< HEAD
+    NSMutableDictionary *advertisingData = [NSMutableDictionary dictionary];
+
+    advertisingData[CBAdvertisementDataServiceUUIDsKey] = @[serviceUUID];
+
+    if (serviceData && ![serviceData isEqualToString:@""]) {
+        NSData *serviceDataBytes = [serviceData dataUsingEncoding:NSUTF8StringEncoding];
+        advertisingData[CBAdvertisementDataServiceDataKey] = @{serviceUUID: serviceDataBytes};
+    }
+
+    if (!(options[@"includeDeviceName"] && [options[@"includeDeviceName"] boolValue])) {
+        advertisingData[CBAdvertisementDataLocalNameKey] = @"";
+    }
+
+    [peripheralManager startAdvertising:advertisingData];
+    resolve(@"Broadcasting");
+}
+
+RCT_EXPORT_METHOD(stopBroadcast:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+    if (peripheralManager.isAdvertising) {
+        [peripheralManager stopAdvertising];
+    }
+    resolve(@"Stopped broadcasting");
+}
+
+RCT_EXPORT_METHOD(scan:(NSArray *)payload options:(NSDictionary *)options resolve:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+    if (!centralReady) {
+        reject(@"Central Not Ready", @"Bluetooth Central Manager is not ready yet.", nil);
+        return;
+    }
+    [centralManager scanForPeripheralsWithServices:nil options:@{CBCentralManagerScanOptionAllowDuplicatesKey:@YES}];
+    resolve(@"Scanning");
+}
+
+RCT_EXPORT_METHOD(scanByService:(NSString *)uid options:(NSDictionary *)options resolve:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+=======
 
     NSMutableDictionary *advertisingData = [NSMutableDictionary dictionary];
     advertisingData[CBAdvertisementDataServiceUUIDsKey] = @[serviceUUID];
@@ -157,10 +221,18 @@ RCT_EXPORT_METHOD(stopBroadcast:(RCTPromiseResolveBlock)resolve rejecter:(RCTPro
 }
 
 RCT_EXPORT_METHOD(scan:(NSArray *)payload options:(NSDictionary *)options resolve:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+>>>>>>> 074ea1f03f0609e2d5cb080a8f26462064c850c5
     if (!centralReady) {
         reject(@"Central Not Ready", @"Bluetooth Central Manager is not ready yet.", nil);
         return;
     }
+<<<<<<< HEAD
+    CBUUID *serviceUUID = [CBUUID UUIDWithString:uid];
+    [centralManager scanForPeripheralsWithServices:@[serviceUUID] options:@{CBCentralManagerScanOptionAllowDuplicatesKey:@YES}];
+    resolve(@"Scanning by service");
+}
+
+=======
     [centralManager scanForPeripheralsWithServices:nil options:@{CBCentralManagerScanOptionAllowDuplicatesKey:@YES}];
     resolve(@"Scanning");
 }
@@ -175,6 +247,7 @@ RCT_EXPORT_METHOD(scanByService:(NSString *)uid options:(NSDictionary *)options 
     resolve(@"Scanning by service");
 }
 
+>>>>>>> 074ea1f03f0609e2d5cb080a8f26462064c850c5
 RCT_EXPORT_METHOD(stopScan:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
     [centralManager stopScan];
     resolve(@"Stopped scanning");
@@ -183,6 +256,9 @@ RCT_EXPORT_METHOD(stopScan:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseR
 RCT_EXPORT_METHOD(getAdapterState:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
     resolve(centralReady ? @"STATE_ON" : @"STATE_OFF");
 }
+<<<<<<< HEAD
+
+=======
 RCT_EXPORT_METHOD(scanForIBeacons:(NSString *)uuid
                    options:(NSDictionary *)options
                    resolve:(RCTPromiseResolveBlock)resolve
@@ -496,6 +572,7 @@ RCT_EXPORT_METHOD(getRangedRegions:(RCTPromiseResolveBlock)resolve
     
     [self sendEventWithName:@"onDeviceFound" body:params];
 }
+>>>>>>> 074ea1f03f0609e2d5cb080a8f26462064c850c5
 #pragma mark - CBCentralManagerDelegate
 
 - (void)centralManagerDidUpdateState:(CBCentralManager *)central {
@@ -503,6 +580,18 @@ RCT_EXPORT_METHOD(getRangedRegions:(RCTPromiseResolveBlock)resolve
     NSDictionary *params = @{@"enabled": @(centralReady)};
     [self sendEventWithName:@"onBTStatusChange" body:params];
 }
+<<<<<<< HEAD
+
+- (void)centralManager:(CBCentralManager *)central didDiscoverPeripheral:(CBPeripheral *)peripheral advertisementData:(NSDictionary<NSString *, id> *)advertisementData RSSI:(NSNumber *)RSSI {
+    NSDictionary *params = @{
+        @"deviceName": peripheral.name ?: @"",
+        @"deviceAddress": peripheral.identifier.UUIDString ?: @"",
+        @"rssi": RSSI ?: @(0),
+        @"serviceUuids": [advertisementData[CBAdvertisementDataServiceUUIDsKey] valueForKey:@"UUIDString"] ?: @[],
+        @"txPower": advertisementData[CBAdvertisementDataTxPowerLevelKey] ?: @(0)
+    };
+    [self sendEventWithName:@"onDeviceFound" body:params];
+=======
 #pragma mark - CBPeripheralManagerDelegate
 #pragma mark - CBPeripheralManagerDelegate
 
@@ -538,9 +627,16 @@ RCT_EXPORT_METHOD(getRangedRegions:(RCTPromiseResolveBlock)resolve
     [self sendEventWithName:@"onLocationAuthorizationChange" body:@{
         @"authorized": @(authorized)
     }];
+>>>>>>> 074ea1f03f0609e2d5cb080a8f26462064c850c5
 }
 
+#pragma mark - CBPeripheralManagerDelegate
 
+<<<<<<< HEAD
+- (void)peripheralManagerDidUpdateState:(CBPeripheralManager *)peripheral {
+    peripheralReady = (peripheral.state == CBManagerStatePoweredOn);
+    // Optionally send an event or log the state change
+=======
 // Handle region monitoring events
 - (void)locationManager:(CLLocationManager *)manager didEnterRegion:(CLRegion *)region {
     if ([region isKindOfClass:[CLBeaconRegion class]]) {
@@ -684,6 +780,7 @@ RCT_EXPORT_METHOD(getRangedRegions:(RCTPromiseResolveBlock)resolve
 // iOS 13+ ranging error delegate method
 - (void)locationManager:(CLLocationManager *)manager didFailRangingBeaconsForConstraint:(CLBeaconIdentityConstraint *)constraint error:(NSError *)error API_AVAILABLE(ios(13.0)) {
     NSLog(@"Ranging failed for constraint %@: %@", constraint, error);
+>>>>>>> 074ea1f03f0609e2d5cb080a8f26462064c850c5
 }
 
 @end
