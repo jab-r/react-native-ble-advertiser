@@ -5,6 +5,9 @@ module.exports = {
             android: {
                 "packageImportPath": "import com.jabresearch.bleadvertiser;",
                 "packageInstance": "new BLEAdvertiserPackage()"
+            },
+            ios: {
+                "podspecPath": "ios/react-native-ble-advertiser.podspec"
             }
         }
     }

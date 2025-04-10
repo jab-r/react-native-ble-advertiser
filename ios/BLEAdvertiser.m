@@ -1,6 +1,6 @@
 #import "BLEAdvertiser.h"
-@import CoreBluetooth;
-@import CoreLocation;
+#import <CoreBluetooth/CoreBluetooth.h>
+#import <CoreLocation/CoreLocation.h>
 
 @implementation BLEAdvertiser {
     BOOL centralReady;
